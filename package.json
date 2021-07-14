@@ -1,0 +1,18 @@
+{
+  "name": "abrpfeeder",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@peculiar/webcrypto": "^1.1.6",
+    "config": "^3.3.6",
+    "request": "^2.88.2",
+    "traverse": "^0.6.6",
+    "uuid": "^8.3.2"
+  }
+}

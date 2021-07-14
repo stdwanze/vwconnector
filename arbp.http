@@ -1,0 +1,38 @@
+POST /1/tlm/send?token=test&api_key=663ea40c-3eb2-4c12-aa1d-6be8fd01b49f&tlm={"utc":1553807658,"soc":80.4,"soh":97.7,"speed":0,"lat":29.564,"lon":-95.025,"is_charging":0,"power":13.2,"ext_temp":25,"batt_temp":25} HTTP/1.1
+Host: api.iternio.com
+Content-Length: 756
+
+{
+  "tlm": {
+    "activity_id": "66666666",
+    "time": "2020-02-06 09:03:04",
+    "is_charging": "0",
+    "lat": "53.256992619126045",
+    "lon": "10.419302238142292",
+    "soc": "99.55",
+    "speed": "28",
+    "elevation": "5",
+    "power": "-1.27",
+    "battery_range": "",
+    "ideal_battery_range": "",
+    "typecode": "",
+    "ext_temp": "5",
+    "battery_capacity": "",
+    "batt_temp": "",
+    "tlm_type": "api",
+    "charger_id": "",
+    "voltage": "",
+    "current": "",
+    "charge_energy_added": "",
+    "soh": "",
+    "is_dcfc": "",
+    "heading": "",
+    "weather_temp": "",
+    "weather_pressure": "",
+    "weather_humidity": "",
+    "weather_condition": "",
+    "weather_wind_speed": "",
+    "weather_wind_dir": "",
+    "odometer": ""
+  }
+}
