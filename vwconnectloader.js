@@ -169,11 +169,21 @@ class VWConnector {
                                     return;
                                 }
                                 try {
-                                    if (body.indexOf("credentialsForm") !== -1) {
-                                        this.log.debug("credentialsForm");
-                                        form = this.extractHidden(body);
-                                        form["password"] = this.config.password;
-                                    } else {
+                                    if (body.indexOf("emailPasswordForm") !== -1) {
+                                        this.log.debug("emailPasswordForm2");
+
+                                        /*
+                                        const stringJson =body.split("window._IDK = ")[1].split(";")[0].replace(/\n/g, "")
+                                        const json =stringJson.replace(/(['"])?([a-z0-9A-Z_]+)(['"])?:/g, '"$2": ').replace(/'/g, '"')
+                                        const jsonObj = JSON.parse(json);
+                                        */
+                                        form = {
+                                            _csrf: body.split("csrf_token: '")[1].split("'")[0],
+                                            email: this.config.user,
+                                            password: this.config.password,
+                                            hmac: body.split('"hmac":"')[1].split('"')[0],
+                                            relayState: body.split('"relayState":"')[1].split('"')[0],
+                                        };} else {
                                         this.log.error("No Login Form found. Please check your E-Mail in the app.");
                                         this.log.debug(JSON.stringify(body));
                                         reject();
