@@ -12,7 +12,7 @@ class VWConnector {
     constructor(options){
 
         this.configLoaded =  configloader.get('VW.creds');
-        this.log = { error: function(msg){ console.log("error:" +msg);}, warn: function (msg) {console.log("WARN:"+msg);},debug: function (msg){ console.log("debug:" +msg);}, info: function(msg){console.log("info:" +msg);} };
+        this.log = { error: function(msg){ console.log("error:" +msg);}, warn: function (msg) {console.log("WARN:"+msg);},debug: function (msg){ /*console.log("debug:" +msg);*/}, info: function(msg){console.log("info:" +msg);} };
         this.type = "Id";
         this.country = "DE";
         this.clientId = "a24fba63-34b3-4d43-b181-942111e6bda8@apps_vw-dilab_com";
@@ -31,10 +31,10 @@ class VWConnector {
 
     }
     extractKeys(adapter, path, element){
-        const chargingstatus = element.chargingStatus;
-        const batterystatus = element.batteryStatus;
-        const plugstatus = element.plugStatus;
-        const climatestatus = element.climatisationStatus;
+        const chargingstatus = element.charging.chargingStatus;
+        const batterystatus = element.charging.batteryStatus;
+        const plugstatus = element.charging.plugStatus;
+        const climatestatus = element.climatisation.climatisationStatus;
         return {
             chargingstatus,batterystatus,plugstatus,climatestatus
         }
@@ -847,7 +847,7 @@ class VWConnector {
         return new Promise((resolve, reject) => {
             request.get(
                 {
-                    url: "https://mobileapi.apps.emea.vwapps.io/vehicles/" + vin + "/status",
+                    url: "https://mobileapi.apps.emea.vwapps.io/vehicles/" + vin + "/selectivestatus?jobs=all",
 
                     headers: {
                         accept: "*/*",
@@ -872,22 +872,22 @@ class VWConnector {
                         return;
                     }
                     console.log(JSON.stringify(body));
-                     const data = {};
-                     for (const key in res.data) {
-                        for (const subkey in res.data[key]) {
+                    // const data = body.data;
+                    /* for (const key in body.data) {
+                        for (const subkey in body.data[key]) {
                             if (key === "userCapabilities") {
-                                data[key] = res.data[key];
+                                data[key] = body.data[key];
                             } else {
-                                data[subkey] = res.data[key][subkey].value;
+                                data[subkey] = body.data[key][subkey].value;
                             }
                         }
-                    }
+                    }*/
 
           
                     
                     
                     try {
-                        var batteryData = this.extractKeys(this, vin + ".status", data);
+                        var batteryData = this.extractKeys(this, vin + ".status", body);
                         resolve(batteryData);
                     } catch (err) {
                         this.log.error(err);
