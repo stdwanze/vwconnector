@@ -843,6 +843,7 @@ class VWConnector {
         return matches;
     }
     getIdStatus(vin) {
+        this.log.debug("getIdStatus in");
         return new Promise((resolve, reject) => {
             request.get(
                 {
@@ -862,10 +863,11 @@ class VWConnector {
                     json: true,
                 },
                 (err, resp, body) => {
+                    this.log.debug("status returned");
                     if (err || (resp && resp.statusCode >= 400)) {
                         err && this.log.error(err);
                         resp && this.log.error(resp.statusCode.toString());
-
+                        this.log.debug("status went wrong");
                         reject();
                         return;
                     }
