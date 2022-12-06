@@ -12,7 +12,7 @@ class VWConnector {
     constructor(options){
 
         this.configLoaded =  configloader.get('VW.creds');
-        this.log = { error: function(msg){ console.log("error:" +msg);}, warn: function (msg) {console.log("WARN:"+msg);},debug: function (msg){ /*console.log("debug:" +msg)*/;}, info: function(msg){console.log("info:" +msg);} };
+        this.log = { error: function(msg){ console.log("error:" +msg);}, warn: function (msg) {console.log("WARN:"+msg);},debug: function (msg){ console.log("debug:" +msg);}, info: function(msg){console.log("info:" +msg);} };
         this.type = "Id";
         this.country = "DE";
         this.clientId = "a24fba63-34b3-4d43-b181-942111e6bda8@apps_vw-dilab_com";
