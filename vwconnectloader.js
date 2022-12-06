@@ -870,8 +870,22 @@ class VWConnector {
                         return;
                     }
                     this.log.debug(JSON.stringify(body));
+                     const data = {};
+                     for (const key in res.data) {
+                        for (const subkey in res.data[key]) {
+                            if (key === "userCapabilities") {
+                                data[key] = res.data[key];
+                            } else {
+                                data[subkey] = res.data[key][subkey].value;
+                            }
+                        }
+                    }
+
+          
+                    
+                    
                     try {
-                        var batteryData = this.extractKeys(this, vin + ".status", body.data);
+                        var batteryData = this.extractKeys(this, vin + ".status", data);
                         resolve(batteryData);
                     } catch (err) {
                         this.log.error(err);
