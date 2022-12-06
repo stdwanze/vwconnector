@@ -869,7 +869,7 @@ class VWConnector {
                         reject();
                         return;
                     }
-                    this.log.debug(JSON.stringify(body));
+                    console.log(JSON.stringify(body));
                      const data = {};
                      for (const key in res.data) {
                         for (const subkey in res.data[key]) {
