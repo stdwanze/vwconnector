@@ -31,10 +31,10 @@ class VWConnector {
 
     }
     extractKeys(adapter, path, element){
-        const chargingstatus = element.charging.chargingStatus;
-        const batterystatus = element.charging.batteryStatus;
-        const plugstatus = element.charging.plugStatus;
-        const climatestatus = element.climatisation.climatisationStatus;
+        const chargingstatus = element.chargingStatus;
+        const batterystatus = element.batteryStatus;
+        const plugstatus = element.plugStatus;
+        const climatestatus = element.climatisationStatus;
         return {
             chargingstatus,batterystatus,plugstatus,climatestatus
         }
@@ -872,22 +872,22 @@ class VWConnector {
                         return;
                     }
                     console.log(JSON.stringify(body));
-                    // const data = body.data;
-                    /* for (const key in body.data) {
-                        for (const subkey in body.data[key]) {
+                     let data = {};
+                    for (const key in body) {
+                        for (const subkey in body[key]) {
                             if (key === "userCapabilities") {
-                                data[key] = body.data[key];
+                                data[key] = body[key];
                             } else {
-                                data[subkey] = body.data[key][subkey].value;
+                                data[subkey] = body[key][subkey].value;
                             }
                         }
-                    }*/
+                    }
 
           
                     
                     
                     try {
-                        var batteryData = this.extractKeys(this, vin + ".status", body);
+                        var batteryData = this.extractKeys(this, vin + ".status", data);
                         resolve(batteryData);
                     } catch (err) {
                         this.log.error(err);
