@@ -5,6 +5,7 @@ const { Crypto } = require("@peculiar/webcrypto");
 const { v4: uuidv4 } = require("uuid");
 const traverse = require("traverse");
 const { extractKeys } = require("./lib/extractKeys");
+const axios = require("axios").default;
 const configloader = require('config');
 const { savetokens, loadtokens} = require('./lib/tokenholder');
 class VWConnector {
@@ -52,361 +53,445 @@ class VWConnector {
                 return;
             }
 
-            const nonce = this.getNonce();
-            const state = uuidv4();
 
-            const [code_verifier, codeChallenge] = this.getCodeChallenge();
-
-            const method = "GET";
-            const form = {};
-            let url =
-                "https://identity.vwgroup.io/oidc/v1/authorize?client_id=" +
-                this.clientId +
-                "&scope=" +
-                this.scope +
-                "&response_type=" +
-                this.responseType +
-                "&redirect_uri=" +
-                this.redirect +
-                "&nonce=" +
-                nonce +
-                "&state=" +
-                state;
-            if (this.config.type === "vw" || this.config.type === "vwv2" || this.config.type === "go") {
-                url += "&code_challenge=" + codeChallenge + "&code_challenge_method=S256";
+          const nonce = this.getNonce();
+          const state = uuidv4();
+          this.log.info(`Login in with ${this.config.type}`);
+          let [code_verifier, codeChallenge] = this.getCodeChallenge();
+          if (this.config.type === "seatelli" || this.config.type === "skodapower") {
+            [code_verifier, codeChallenge] = this.getCodeChallengev2();
+          }
+          const method = "GET";
+          const form = {};
+          let url =
+            "https://identity.vwgroup.io/oidc/v1/authorize?client_id=" +
+            this.clientId +
+            "&scope=" +
+            this.scope +
+            "&response_type=" +
+            this.responseType +
+            "&redirect_uri=" +
+            this.redirect +
+            "&nonce=" +
+            nonce +
+            "&state=" +
+            state;
+          if (
+            this.config.type === "vw" ||
+            this.config.type === "vwv2" ||
+            this.config.type === "go" ||
+            this.config.type === "seatelli" ||
+            this.config.type === "skodapower" ||
+            this.config.type === "audidata" ||
+            this.config.type === "audietron" ||
+            this.config.type === "seatcupra"
+          ) {
+            url += "&code_challenge=" + codeChallenge + "&code_challenge_method=S256";
+          }
+          if (this.config.type === "audi") {
+            url += "&ui_locales=de-DE%20de&prompt=login";
+          }
+          if (this.config.type === "id" && this.type !== "Wc") {
+            url = await this.receiveLoginUrl().catch(() => {
+              this.log.warn("Failed to get login url");
+            });
+            if (!url) {
+              url =
+                "https://emea.bff.cariad.digital/user-login/v1/authorize?nonce=" +
+                this.randomString(16) +
+                "&redirect_uri=weconnect://authenticated";
             }
-            if (this.config.type === "audi") {
-                url += "&ui_locales=de-DE%20de&prompt=login";
-            }
-            if (this.config.type === "id" && this.type !== "Wc") {
-                url = await this.receiveLoginUrl().catch(() => {
-                    this.log.warn("Failed to get login url");
-                });
-                if (!url) {
-                    url = "https://login.apps.emea.vwapps.io/authorize?nonce=" + this.randomString(16) + "&redirect_uri=weconnect://authenticated";
+          }
+          const loginRequest = request(
+            {
+              method: method,
+              url: url,
+              headers: {
+                "User-Agent": this.userAgent,
+                Accept:
+                  "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate",
+                "x-requested-with": this.xrequest,
+                "upgrade-insecure-requests": 1,
+              },
+              jar: this.jar,
+              form: form,
+              gzip: true,
+              followAllRedirects: true,
+            },
+            (err, resp, body) => {
+              if (err || (resp && resp.statusCode >= 400)) {
+                if (this.type === "Wc") {
+                  if (err && err.message && err.message === "Invalid protocol: wecharge:") {
+                    this.log.debug("Found WeCharge connection");
+                    this.getTokens(loginRequest, code_verifier, reject, resolve);
+                  } else {
+                    this.log.debug("No WeCharge found, cancel login");
+                    resolve();
+                  }
+                  return;
                 }
-            }
-            const loginRequest = request(
-                {
-                    method: method,
-                    url: url,
+                if (err && err.message && err.message.indexOf("Invalid protocol:") !== -1) {
+                  this.log.debug("Found Token");
+                  this.getTokens(loginRequest, code_verifier, reject, resolve);
+                  return;
+                }
+                this.log.error("Failed in first login step ");
+                err && this.log.error(err);
+                resp && this.log.error(resp.statusCode.toString());
+                body && this.log.error(JSON.stringify(body));
+                err && err.message && this.log.error(err.message);
+                loginRequest &&
+                  loginRequest.uri &&
+                  loginRequest.uri.query &&
+                  this.log.debug(loginRequest.uri.query.toString());
+    
+                reject();
+                return;
+              }
+    
+              try {
+                let form = {};
+                if (body.indexOf("emailPasswordForm") !== -1) {
+                  this.log.debug("parseEmailForm");
+                  form = this.extractHidden(body);
+                  form["email"] = this.config.user;
+                } else {
+                  if (this.type === "Wc") {
+                    resolve();
+                    return;
+                  }
+                  this.log.error("No Login Form found for type: " + this.type);
+                  this.log.debug(JSON.stringify(body));
+                  reject();
+                  return;
+                }
+                request.post(
+                  {
+                    url: "https://identity.vwgroup.io/signin-service/v1/" + this.clientId + "/login/identifier",
                     headers: {
-                        "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/74.0.3729.185 Mobile Safari/537.36",
-                        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
-                        "Accept-Language": "en-US,en;q=0.9",
-                        "Accept-Encoding": "gzip, deflate",
-                        "x-requested-with": this.xrequest,
-                        "upgrade-insecure-requests": 1,
+                      "Content-Type": "application/x-www-form-urlencoded",
+                      "User-Agent": this.userAgent,
+                      Accept:
+                        "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
+                      "Accept-Language": "en-US,en;q=0.9",
+                      "Accept-Encoding": "gzip, deflate",
+                      "x-requested-with": this.xrequest,
                     },
-                    jar: this.jar,
                     form: form,
+                    jar: this.jar,
                     gzip: true,
                     followAllRedirects: true,
-                },
-                (err, resp, body) => {
+                  },
+                  (err, resp, body) => {
                     if (err || (resp && resp.statusCode >= 400)) {
-                        if (this.type === "Wc") {
-                            if (err && err.message === "Invalid protocol: wecharge:") {
-                                this.log.debug("Found WeCharge connection");
-                                this.getTokens(loginRequest, code_verifier, reject, resolve);
-                            } else {
-                                this.log.debug("No WeCharge found, cancel login");
-                                resolve();
-                            }
-                            return;
-                        }
-                        if (err && err.message.indexOf("Invalid protocol:") !== -1) {
-                            this.log.debug("Found Token");
-                            this.getTokens(loginRequest, code_verifier, reject, resolve);
-                            return;
-                        }
-                        this.log.error("Failed in first login step ");
-                        err && this.log.error(err);
-                        resp && this.log.error(resp.statusCode.toString());
-                        body && this.log.error(JSON.stringify(body));
-                        err && err.message && this.log.error(err.message);
-                        loginRequest && loginRequest.uri && loginRequest.uri.query && this.log.debug(loginRequest.uri.query.toString());
-
+                      this.log.error("Failed to get login identifier");
+                      err && this.log.error(err);
+                      resp && this.log.error(resp.statusCode.toString());
+                      body && this.log.error(JSON.stringify(body));
+                      reject();
+                      return;
+                    }
+                    try {
+                      if (body.indexOf("emailPasswordForm") !== -1) {
+                        this.log.debug("emailPasswordForm2");
+    
+                        /*
+                                            const stringJson =body.split("window._IDK = ")[1].split(";")[0].replace(/\n/g, "")
+                                            const json =stringJson.replace(/(['"])?([a-z0-9A-Z_]+)(['"])?:/g, '"$2": ').replace(/'/g, '"')
+                                            const jsonObj = JSON.parse(json);
+                                            */
+                        form = {
+                          _csrf: body.split("csrf_token: '")[1].split("'")[0],
+                          email: this.config.user,
+                          password: this.config.password,
+                          hmac: body.split('"hmac":"')[1].split('"')[0],
+                          relayState: body.split('"relayState":"')[1].split('"')[0],
+                        };
+                      } else {
+                        this.log.error("No Login Form found. Please check your E-Mail in the app.");
+                        this.log.debug(JSON.stringify(body));
                         reject();
                         return;
-                    }
-
-                    try {
-                        let form = {};
-                        if (body.indexOf("emailPasswordForm") !== -1) {
-                            this.log.debug("parseEmailForm");
-                            form = this.extractHidden(body);
-                            form["email"] = this.config.user;
-                        } else {
-                            this.log.error("No Login Form found for type: " + this.type);
-                            this.log.debug(JSON.stringify(body));
+                      }
+                      request.post(
+                        {
+                          url: "https://identity.vwgroup.io/signin-service/v1/" + this.clientId + "/login/authenticate",
+                          headers: {
+                            "Content-Type": "application/x-www-form-urlencoded",
+                            "User-Agent": this.userAgent,
+                            Accept:
+                              "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
+                            "Accept-Language": "en-US,en;q=0.9",
+                            "Accept-Encoding": "gzip, deflate",
+                            "x-requested-with": this.xrequest,
+                          },
+                          form: form,
+                          jar: this.jar,
+                          gzip: true,
+                          followAllRedirects: false,
+                        },
+                        (err, resp, body) => {
+                          if (err || (resp && resp.statusCode >= 400)) {
+                            this.log.error("Failed to get login authenticate");
+                            err && this.log.error(err);
+                            resp && this.log.error(resp.statusCode.toString());
+                            body && this.log.error(JSON.stringify(body));
                             reject();
                             return;
-                        }
-                        request.post(
-                            {
-                                url: "https://identity.vwgroup.io/signin-service/v1/" + this.clientId + "/login/identifier",
-                                headers: {
-                                    "Content-Type": "application/x-www-form-urlencoded",
-                                    "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/74.0.3729.185 Mobile Safari/537.36",
-                                    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
+                          }
+    
+                          try {
+                            this.log.debug(JSON.stringify(body));
+                            this.log.debug(JSON.stringify(resp.headers));
+    
+                            if (
+                              resp.headers.location.split("&").length <= 2 ||
+                              resp.headers.location.indexOf("/terms-and-conditions?") !== -1
+                            ) {
+                              this.log.warn(resp.headers.location);
+                              this.log.warn(
+                                "No valid userid, please check username and password or visit this link or logout and login in your app account:",
+                              );
+                              this.log.warn("Bitte in die App einloggen und die Nutzungsbedingungen akzeptieren.");
+                              this.log.warn("https://" + resp.request.host + resp.headers.location);
+                              this.log.warn("Try to auto accept new consent");
+    
+                              request.get(
+                                {
+                                  url: "https://" + resp.request.host + resp.headers.location,
+                                  jar: this.jar,
+                                  headers: {
+                                    "User-Agent": this.userAgent,
+                                    Accept:
+                                      "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
                                     "Accept-Language": "en-US,en;q=0.9",
                                     "Accept-Encoding": "gzip, deflate",
                                     "x-requested-with": this.xrequest,
+                                  },
+                                  followAllRedirects: true,
+                                  gzip: true,
                                 },
-                                form: form,
+                                (err, resp, body) => {
+                                  this.log.debug(body);
+    
+                                  const form = this.extractHidden(body);
+                                  //check for empty form object
+                                  if (Object.keys(form).length === 0 && form.constructor === Object) {
+                                    try {
+                                      const stringJson = body
+                                        .split("window._IDK = ")[1]
+                                        .split("</")[0]
+                                        .replace(/\n/g, "")
+                                        .replace(/:\/\//g, "")
+                                        .replace(/local:/g, "");
+                                      const json = stringJson
+                                        .replace(/(['"])?([a-z0-9A-Z_]+)(['"])?:/g, '"$2": ')
+                                        .replace(/'/g, '"')
+                                        .replace(/""/g, '"');
+                                      const parsedJson = JSON.parse(json);
+                                      form._csrf = parsedJson.csrf_token;
+                                      form.hmac = parsedJson.templateModel.hmac;
+                                      form.relayState = parsedJson.templateModel.relayState;
+                                      form.legalDocuments = parsedJson.templateModel.legalDocuments;
+                                    } catch (error) {
+                                      this.log.error("Error in consent form");
+                                      this.log.error(error);
+                                      reject();
+                                      return;
+                                    }
+                                  }
+                                  const url = "https://" + resp.request.host + resp.req.path.split("?")[0];
+                                  this.log.debug(JSON.stringify(form));
+                                  request.post(
+                                    {
+                                      url: url,
+                                      jar: this.jar,
+                                      headers: {
+                                        "Content-Type": "application/x-www-form-urlencoded",
+                                        "User-Agent": this.userAgent,
+                                        Accept:
+                                          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
+                                        "Accept-Language": "en-US,en;q=0.9",
+                                        "Accept-Encoding": "gzip, deflate",
+                                        "x-requested-with": this.xrequest,
+                                      },
+                                      form: qs
+                                        .stringify(form)
+                                        .replace(/true/g, "yes")
+                                        .replace(/false/g, "no")
+                                        .replace(/%5D%5B/g, "%5D.")
+                                        .replace(/%5D=/g, "="),
+                                      followAllRedirects: true,
+                                      gzip: true,
+                                    },
+                                    (err, resp, body) => {
+                                      if (err && err.message.indexOf("Invalid protocol:") === 0) {
+                                        this.log.info("Auto accept succesful. Restart adapter in 10sec");
+                                        setTimeout(() => {
+                                          this.restart();
+                                        }, 10 * 1000);
+                                        return;
+                                      }
+                                      if (
+                                        (err && err.message.indexOf("Invalid protocol:") !== -1) ||
+                                        (resp && resp.statusCode >= 400)
+                                      ) {
+                                        this.log.warn("Failed to auto accept");
+                                        err && this.log.error(err);
+                                        resp && this.log.error(resp.statusCode.toString());
+                                        body && this.log.error(JSON.stringify(body));
+                                        reject();
+                                        return;
+                                      }
+                                      this.log.info("Auto accept succesful. Restart adapter in 10sec");
+                                      setTimeout(() => {
+                                        this.restart();
+                                      }, 10 * 1000);
+                                    },
+                                  );
+                                },
+                              );
+    
+                              reject();
+                              return;
+                            }
+                            this.config.userid = resp.headers.location.split("&")[2].split("=")[1];
+                            if (!this.stringIsAValidUrl(resp.headers.location)) {
+                              if (resp.headers.location.indexOf("&error=") !== -1) {
+                                const location = resp.headers.location;
+                                this.log.error(
+                                  "Error: " + location.substring(location.indexOf("error="), location.length - 1),
+                                );
+                              } else {
+                                this.log.error("No valid login url, please download the log and visit:");
+                                this.log.error("http://" + resp.request.host + resp.headers.location);
+                              }
+                              reject();
+                              return;
+                            }
+    
+                            let getRequest = request.get(
+                              {
+                                url: resp.headers.location || "",
+                                headers: {
+                                  "User-Agent": this.userAgent,
+                                  Accept:
+                                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
+                                  "Accept-Language": "en-US,en;q=0.9",
+                                  "Accept-Encoding": "gzip, deflate",
+                                  "x-requested-with": this.xrequest,
+                                },
                                 jar: this.jar,
                                 gzip: true,
                                 followAllRedirects: true,
-                            },
-                            (err, resp, body) => {
-                                if (err || (resp && resp.statusCode >= 400)) {
-                                    this.log.error("Failed to get login identifier");
-                                    err && this.log.error(err);
-                                    resp && this.log.error(resp.statusCode.toString());
-                                    body && this.log.error(JSON.stringify(body));
-                                    reject();
-                                    return;
-                                }
-                                try {
-                                    if (body.indexOf("emailPasswordForm") !== -1) {
-                                        this.log.debug("emailPasswordForm2");
-
-                                        /*
-                                        const stringJson =body.split("window._IDK = ")[1].split(";")[0].replace(/\n/g, "")
-                                        const json =stringJson.replace(/(['"])?([a-z0-9A-Z_]+)(['"])?:/g, '"$2": ').replace(/'/g, '"')
-                                        const jsonObj = JSON.parse(json);
-                                        */
-                                        form = {
-                                            _csrf: body.split("csrf_token: '")[1].split("'")[0],
-                                            email: this.config.user,
-                                            password: this.config.password,
-                                            hmac: body.split('"hmac":"')[1].split('"')[0],
-                                            relayState: body.split('"relayState":"')[1].split('"')[0],
-                                        };} else {
-                                        this.log.error("No Login Form found. Please check your E-Mail in the app.");
-                                        this.log.debug(JSON.stringify(body));
-                                        reject();
-                                        return;
-                                    }
-                                    request.post(
-                                        {
-                                            url: "https://identity.vwgroup.io/signin-service/v1/" + this.clientId + "/login/authenticate",
-                                            headers: {
-                                                "Content-Type": "application/x-www-form-urlencoded",
-                                                "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/74.0.3729.185 Mobile Safari/537.36",
-                                                Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
-                                                "Accept-Language": "en-US,en;q=0.9",
-                                                "Accept-Encoding": "gzip, deflate",
-                                                "x-requested-with": this.xrequest,
-                                            },
-                                            form: form,
-                                            jar: this.jar,
-                                            gzip: true,
-                                            followAllRedirects: false,
-                                        },
-                                        (err, resp, body) => {
-                                            if (err || (resp && resp.statusCode >= 400)) {
-                                                this.log.error("Failed to get login authenticate");
-                                                err && this.log.error(err);
-                                                resp && this.log.error(resp.statusCode.toString());
-                                                body && this.log.error(JSON.stringify(body));
-                                                reject();
-                                                return;
-                                            }
-
-                                            try {
-                                                this.log.debug(JSON.stringify(body));
-                                                this.log.debug(JSON.stringify(resp.headers));
-
-                                                if (resp.headers.location.split("&").length <= 2 || resp.headers.location.indexOf("/terms-and-conditions?") !== -1) {
-                                                    this.log.warn(resp.headers.location);
-                                                    this.log.warn("No valid userid, please visit this link or logout and login in your app account:");
-                                                    this.log.warn("https://" + resp.request.host + resp.headers.location);
-                                                    this.log.warn("Try to auto accept new consent");
-
-                                                    request.get(
-                                                        {
-                                                            url: "https://" + resp.request.host + resp.headers.location,
-                                                            jar: this.jar,
-                                                            headers: {
-                                                                "User-Agent":
-                                                                    "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/74.0.3729.185 Mobile Safari/537.36",
-                                                                Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
-                                                                "Accept-Language": "en-US,en;q=0.9",
-                                                                "Accept-Encoding": "gzip, deflate",
-                                                                "x-requested-with": this.xrequest,
-                                                            },
-                                                            followAllRedirects: true,
-                                                            gzip: true,
-                                                        },
-                                                        (err, resp, body) => {
-                                                            this.log.debug(body);
-
-                                                            const form = this.extractHidden(body);
-                                                            const url = "https://" + resp.request.host + resp.req.path.split("?")[0];
-                                                            this.log.debug(JSON.stringify(form));
-                                                            request.post(
-                                                                {
-                                                                    url: url,
-                                                                    jar: this.jar,
-                                                                    headers: {
-                                                                        "Content-Type": "application/x-www-form-urlencoded",
-                                                                        "User-Agent":
-                                                                            "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/74.0.3729.185 Mobile Safari/537.36",
-                                                                        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
-                                                                        "Accept-Language": "en-US,en;q=0.9",
-                                                                        "Accept-Encoding": "gzip, deflate",
-                                                                        "x-requested-with": this.xrequest,
-                                                                    },
-                                                                    form: form,
-                                                                    followAllRedirects: true,
-                                                                    gzip: true,
-                                                                },
-                                                                (err, resp, body) => {
-                                                                    if ((err && err.message.indexOf("Invalid protocol:") !== -1) || (resp && resp.statusCode >= 400)) {
-                                                                        this.log.warn("Failed to auto accept");
-                                                                        err && this.log.error(err);
-                                                                        resp && this.log.error(resp.statusCode.toString());
-                                                                        body && this.log.error(JSON.stringify(body));
-                                                                        reject();
-                                                                        return;
-                                                                    }
-                                                                    this.log.info("Auto accept succesful. Restart adapter in 10sec");
-                                                                    setTimeout(() => {
-                                                                        this.restart();
-                                                                    }, 10 * 1000);
-                                                                }
-                                                            );
-                                                        }
-                                                    );
-
-                                                    reject();
-                                                    return;
-                                                }
-                                                this.config.userid = resp.headers.location.split("&")[2].split("=")[1];
-                                                if (!this.stringIsAValidUrl(resp.headers.location)) {
-                                                    if (resp.headers.location.indexOf("&error=") !== -1) {
-                                                        const location = resp.headers.location;
-                                                        this.log.error("Error: " + location.substring(location.indexOf("error="), location.length - 1));
-                                                    } else {
-                                                        this.log.error("No valid login url, please download the log and visit:");
-                                                        this.log.error("http://" + resp.request.host + resp.headers.location);
-                                                    }
-                                                    reject();
-                                                    return;
-                                                }
-
-                                                let getRequest = request.get(
-                                                    {
-                                                        url: resp.headers.location || "",
-                                                        headers: {
-                                                            "User-Agent":
-                                                                "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/74.0.3729.185 Mobile Safari/537.36",
-                                                            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
-                                                            "Accept-Language": "en-US,en;q=0.9",
-                                                            "Accept-Encoding": "gzip, deflate",
-                                                            "x-requested-with": this.xrequest,
-                                                        },
-                                                        jar: this.jar,
-                                                        gzip: true,
-                                                        followAllRedirects: true,
-                                                    },
-                                                    (err, resp, body) => {
-                                                        if (err) {
-                                                            this.log.debug(err);
-                                                            this.getTokens(getRequest, code_verifier, reject, resolve);
-                                                        } else {
-                                                            this.log.debug("No Token received visiting url and accept the permissions.");
-                                                            const form = this.extractHidden(body);
-                                                            getRequest = request.post(
-                                                                {
-                                                                    url: getRequest.uri.href,
-                                                                    headers: {
-                                                                        "Content-Type": "application/x-www-form-urlencoded",
-                                                                        "User-Agent":
-                                                                            "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/74.0.3729.185 Mobile Safari/537.36",
-                                                                        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
-                                                                        "Accept-Language": "en-US,en;q=0.9",
-                                                                        "Accept-Encoding": "gzip, deflate",
-                                                                        "x-requested-with": this.xrequest,
-                                                                        referer: getRequest.uri.href,
-                                                                    },
-                                                                    form: form,
-                                                                    jar: this.jar,
-                                                                    gzip: true,
-                                                                    followAllRedirects: true,
-                                                                },
-                                                                (err, resp, body) => {
-                                                                    if (err) {
-                                                                        this.getTokens(getRequest, code_verifier, reject, resolve);
-                                                                    } else {
-                                                                        this.log.error("No Token received.");
-                                                                        try {
-                                                                            this.log.debug(JSON.stringify(body));
-                                                                        } catch (err) {
-                                                                            this.log.error(err);
-                                                                            reject();
-                                                                        }
-                                                                    }
-                                                                }
-                                                            );
-                                                        }
-                                                    }
-                                                );
-                                            } catch (err2) {
-                                                this.log.error("Login was not successful, please check your login credentials and selected type");
-                                                err && this.log.error(err);
-                                                this.log.error(err2);
-                                                this.log.error(err2.stack);
-                                                reject();
-                                            }
+                              },
+                              (err, resp, body) => {
+                                if (err) {
+                                  this.log.debug(err);
+                                  this.getTokens(getRequest, code_verifier, reject, resolve);
+                                } else {
+                                  this.log.debug(body);
+                                  this.log.warn(
+                                    "No Token received visiting url and accept the permissions or login and accept",
+                                  );
+                                  this.log.info(getRequest.uri.href);
+                                  const form = this.extractHidden(body);
+                                  getRequest = request.post(
+                                    {
+                                      url: getRequest.uri.href,
+                                      headers: {
+                                        "Content-Type": "application/x-www-form-urlencoded",
+                                        "User-Agent": this.userAgent,
+                                        Accept:
+                                          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
+                                        "Accept-Language": "en-US,en;q=0.9",
+                                        "Accept-Encoding": "gzip, deflate",
+                                        "x-requested-with": this.xrequest,
+                                        referer: getRequest.uri.href,
+                                      },
+                                      form: form,
+                                      jar: this.jar,
+                                      gzip: true,
+                                      followAllRedirects: true,
+                                    },
+                                    (err, resp, body) => {
+                                      if (err) {
+                                        this.getTokens(getRequest, code_verifier, reject, resolve);
+                                      } else {
+                                        this.log.error(
+                                          "No Token received. Please try to logout and login in the VW app or select type VWv2 in the settings",
+                                        );
+                                        try {
+                                          this.log.debug(JSON.stringify(body));
+                                        } catch (err) {
+                                          this.log.error(err);
+                                          reject();
                                         }
-                                    );
-                                } catch (err) {
-                                    this.log.error(err);
-                                    reject();
+                                      }
+                                    },
+                                  );
                                 }
-                            }
-                        );
+                              },
+                            );
+                          } catch (err2) {
+                            this.log.error(
+                              "Login was not successful, please check your login credentials and selected type",
+                            );
+                            err && this.log.error(err);
+                            this.log.error(err2);
+                            this.log.error(err2.stack);
+                            reject();
+                          }
+                        },
+                      );
                     } catch (err) {
-                        this.log.error(err);
-                        reject();
+                      this.log.error(err);
+                      reject();
                     }
-                }
-            );
+                  },
+                );
+              } catch (err) {
+                this.log.error(err);
+                reject();
+              }
+            },
+          );
         });
-    }
-    receiveLoginUrl() {
+      }
+      receiveLoginUrl() {
         return new Promise((resolve, reject) => {
-            request(
-                {
-                    method: "GET",
-                    url: "https://login.apps.emea.vwapps.io/authorize?nonce=" + this.randomString(16) + "&redirect_uri=weconnect://authenticated",
-                    headers: {
-                        Host: "login.apps.emea.vwapps.io",
-                        "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Mobile/15E148 Safari/604.1",
-                        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                        "accept-language": "de-de",
-                    },
-                    jar: this.jar,
-                    gzip: true,
-                    followAllRedirects: false,
-                },
-                (err, resp, body) => {
-                    if (err || (resp && resp.statusCode >= 400)) {
-                        this.log.error("Failed in receive login url ");
-                        err && this.log.error(err);
-                        resp && this.log.error(resp.statusCode.toString());
-                        body && this.log.error(JSON.stringify(body));
-                        reject();
-                        return;
-                    }
-                    resolve(resp.request.href);
-                }
-            );
+          request(
+            {
+              method: "GET",
+              url:
+                "https://emea.bff.cariad.digital/user-login/v1/authorize?nonce=" +
+                this.randomString(16) +
+                "&redirect_uri=weconnect://authenticated",
+              headers: {
+                "user-agent": this.userAgent,
+                accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "accept-language": "de-de",
+              },
+              jar: this.jar,
+              gzip: true,
+              followAllRedirects: false,
+            },
+            (err, resp, body) => {
+              if (err || (resp && resp.statusCode >= 400)) {
+                this.log.error("Failed in receive login url ");
+                err && this.log.error(err);
+                resp && this.log.error(resp.statusCode.toString());
+                body && this.log.error(JSON.stringify(body));
+                reject();
+                return;
+              }
+              resolve(resp.request.href);
+            },
+          );
         });
-    }
+      }
     replaceVarInUrl(url, vin, tripType) {
         const curHomeRegion = this.homeRegion[vin];
         return url
@@ -417,11 +502,16 @@ class VWConnector {
             .replace("/$tripType", "/" + tripType);
     }
     getTokens(getRequest, code_verifier, reject, resolve) {
+        if (this.config.type === "audietron") {
+          this.getTokensv2(getRequest, code_verifier, reject, resolve);
+          return;
+        }
+    
         let hash = "";
         if (getRequest.uri.hash) {
-            hash = getRequest.uri.hash;
+          hash = getRequest.uri.hash;
         } else {
-            hash = getRequest.uri.query;
+          hash = getRequest.uri.query;
         }
         const hashArray = hash.split("&");
         // eslint-disable-next-line no-unused-vars
@@ -431,22 +521,22 @@ class VWConnector {
         let jwtid_token;
         let jwtstate;
         hashArray.forEach((hash) => {
-            const harray = hash.split("=");
-            if (harray[0] === "#state" || harray[0] === "state") {
-                state = harray[1];
-            }
-            if (harray[0] === "code") {
-                jwtauth_code = harray[1];
-            }
-            if (harray[0] === "access_token") {
-                jwtaccess_token = harray[1];
-            }
-            if (harray[0] === "id_token") {
-                jwtid_token = harray[1];
-            }
-            if (harray[0] === "#state") {
-                jwtstate = harray[1];
-            }
+          const harray = hash.split("=");
+          if (harray[0] === "#state" || harray[0] === "state") {
+            state = harray[1];
+          }
+          if (harray[0] === "code") {
+            jwtauth_code = harray[1];
+          }
+          if (harray[0] === "access_token") {
+            jwtaccess_token = harray[1];
+          }
+          if (harray[0] === "id_token") {
+            jwtid_token = harray[1];
+          }
+          if (harray[0] === "#state") {
+            jwtstate = harray[1];
+          }
         });
         // const state = hashArray[0].substring(hashArray[0].indexOf("=") + 1);
         // const jwtauth_code = hashArray[1].substring(hashArray[1].indexOf("=") + 1);
@@ -456,90 +546,161 @@ class VWConnector {
         let body = "auth_code=" + jwtauth_code + "&id_token=" + jwtid_token;
         let url = "https://tokenrefreshservice.apps.emea.vwapps.io/exchangeAuthCode";
         let headers = {
-            // "user-agent": "okhttp/3.7.0",
-            "X-App-version": this.xappversion,
-            "content-type": "application/x-www-form-urlencoded",
-            "x-app-name": this.xappname,
-            accept: "application/json",
+          // "user-agent": this.userAgent,
+          "X-App-version": this.xappversion,
+          "content-type": "application/x-www-form-urlencoded",
+          "x-app-name": this.xappname,
+          accept: "application/json",
         };
         if (this.config.type === "vw" || this.config.type === "vwv2") {
-            body += "&code_verifier=" + code_verifier;
+          body += "&code_verifier=" + code_verifier;
         } else {
-            const brand = this.config.type === "skodae" ? "skoda" : this.config.type;
-            body += "&brand=" + brand;
+          const brand = this.config.type === "skodae" ? "skoda" : this.config.type;
+    
+          body += "&brand=" + brand;
+        }
+        if (this.config.type === "skodae") {
+          const parsedParameters = qs.parse(hash);
+          this.config.atoken = parsedParameters.access_token;
+          method = "POST";
+          url = "https://api.connect.skoda-auto.cz/api/v1/authentication/token?systemId=TECHNICAL";
+          body = JSON.stringify({
+            authorizationCode: parsedParameters.code,
+          });
+          headers = {
+            accept: "*/*",
+            authorization: "Bearer " + parsedParameters.id_token,
+            "content-type": "application/json",
+            "user-agent": this.useragent,
+            "accept-language": "de-de",
+          };
         }
         if (this.config.type === "go") {
-            url = "https://dmp.apps.emea.vwapps.io/mobility-platform/token";
-            body =
-                "code=" +
-                jwtauth_code +
-                "&client_id=" +
-                this.clientId +
-                "&redirect_uri=vwconnect://de.volkswagen.vwconnect/oauth2redirect/identitykit&grant_type=authorization_code&code_verifier=" +
-                code_verifier;
+          url = "https://dmp.apps.emea.vwapps.io/mobility-platform/token";
+          body =
+            "code=" +
+            jwtauth_code +
+            "&client_id=" +
+            this.clientId +
+            "&redirect_uri=vwconnect://de.volkswagen.vwconnect/oauth2redirect/identitykit&grant_type=authorization_code&code_verifier=" +
+            code_verifier;
+        }
+        if (this.config.type === "seatcupra") {
+          url = "https://identity.vwgroup.io/oidc/v1/token";
+          body =
+            "code=" +
+            jwtauth_code +
+            "&client_id=" +
+            this.clientId +
+            "&redirect_uri=" +
+            this.redirect +
+            "&grant_type=authorization_code&code_verifier=" +
+            code_verifier;
+          headers = {
+            accept: "*/*",
+            "content-type": "application/x-www-form-urlencoded; charset=utf-8",
+            authorization:
+              "Basic M2M3NTZkNDYtZjFiYS00ZDc4LTlmOWEtY2ZmMGQ1MjkyZDUxQGFwcHNfdnctZGlsYWJfY29tOmViODgxNGU2NDFjODFhMjY0MGFkNjJlZWNjZWMxMWM5OGVmZmM5YmNjZDQyNjlhYjdhZjMzOGI1MGE5NGIzYTI=",
+            "user-agent": "CUPRAApp%20-%20Store/20220207 CFNetwork/1240.0.4 Darwin/20.6.0",
+            "accept-language": "de-de",
+          };
+        }
+        if (this.config.type === "audidata") {
+          url = "https://audi-global-dmp.apps.emea.vwapps.io/mobility-platform/token";
+          body =
+            "code=" +
+            jwtauth_code +
+            "&client_id=" +
+            this.clientId +
+            "&redirect_uri=acpp://de.audi.connectplugandplay/oauth2redirect/identitykit&grant_type=authorization_code&code_verifier=" +
+            code_verifier;
         }
         if (this.config.type === "id") {
-            url = "https://login.apps.emea.vwapps.io/login/v1";
-            let redirerctUri = "weconnect://authenticated";
-
-            body = JSON.stringify({
-                state: jwtstate,
-                id_token: jwtid_token,
-                redirect_uri: redirerctUri,
-                region: "emea",
-                access_token: jwtaccess_token,
-                authorizationCode: jwtauth_code,
-            });
-            // @ts-ignore
-            headers = {
-                accept: "*/*",
-                "content-type": "application/json",
-                "x-newrelic-id": "VgAEWV9QDRAEXFlRAAYPUA==",
-                "user-agent": "WeConnect/5 CFNetwork/1206 Darwin/20.1.0",
-                "accept-language": "de-de",
-            };
-            if (this.type === "Wc") {
-                method = "GET";
-                url = "https://wecharge.apps.emea.vwapps.io/user-identity/v1/identity/login?redirect_uri=wecharge://authenticated&code=" + jwtauth_code;
-                redirerctUri = "wecharge://authenticated";
-                headers["x-api-key"] = "yabajourasW9N8sm+9F/oP==";
-            }
+          url = "https://emea.bff.cariad.digital/user-login/login/v1";
+          let redirerctUri = "weconnect://authenticated";
+    
+          body = JSON.stringify({
+            state: jwtstate,
+            id_token: jwtid_token,
+            redirect_uri: redirerctUri,
+            region: "emea",
+            access_token: jwtaccess_token,
+            authorizationCode: jwtauth_code,
+          });
+          // @ts-ignore
+          headers = {
+            accept: "*/*",
+            "content-type": "application/json",
+            "x-newrelic-id": "VgAEWV9QDRAEXFlRAAYPUA==",
+            "user-agent": this.userAgent,
+            "accept-language": "de-de",
+          };
+          if (this.type === "Wc") {
+            method = "GET";
+            url =
+              "https://wecharge.apps.emea.vwapps.io/user-identity/v1/identity/login?redirect_uri=wecharge://authenticated&code=" +
+              jwtauth_code;
+            redirerctUri = "wecharge://authenticated";
+            headers["x-api-key"] = "yabajourasW9N8sm+9F/oP==";
+          }
         }
         if (this.config.type === "audi") {
-            this.getVWToken({}, jwtid_token, reject, resolve);
-            return;
+          this.getVWToken({}, jwtid_token, reject, resolve);
+          return;
+        }
+        if (this.config.type === "seatelli" || this.config.type === "skodapower") {
+          url = "https://api.elli.eco/identity/v1/loginOrSignupWithIdKit";
+          let brand = "seat";
+          let redirect = "Seat-elli-hub://opid";
+          if (this.config.type === "skodapower") {
+            brand = "skoda";
+            redirect = "skoda-hub://opid";
+          }
+          body = JSON.stringify({
+            brand: brand,
+            grant_type: "authorization_code",
+            code: jwtauth_code,
+            redirect_uri: redirect,
+            code_verifier: code_verifier,
+          });
+          // @ts-ignore
+          headers = {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            "User-Agent": this.userAgent,
+            "Accept-Language": "de-DE",
+          };
         }
         request(
-            {
-                method: method,
-                url: url,
-                headers: headers,
-                body: body,
-                jar: this.jar,
-                gzip: true,
-                followAllRedirects: false,
-            },
-            (err, resp, body) => {
-                if (err || (resp && resp.statusCode >= 400)) {
-                    this.log.error("Failed to get token");
-                    err && this.log.error(err);
-                    resp && this.log.error(resp.statusCode.toString());
-                    body && this.log.error(JSON.stringify(body));
-                    reject();
-                    return;
-                }
-                try {
-                    const tokens = JSON.parse(body);
-
-                    this.getVWToken(tokens, jwtid_token, reject, resolve);
-                } catch (err) {
-                    this.log.error(err);
-                    reject();
-                }
+          {
+            method: method,
+            url: url,
+            headers: headers,
+            body: body,
+            jar: this.jar,
+            gzip: true,
+            followAllRedirects: false,
+          },
+          (err, resp, body) => {
+            if (err || (resp && resp.statusCode >= 400)) {
+              this.log.error("Failed to get token");
+              err && this.log.error(err);
+              resp && this.log.error(resp.statusCode.toString());
+              body && this.log.error(JSON.stringify(body));
+              reject();
+              return;
             }
+            try {
+              const tokens = JSON.parse(body);
+    
+              this.getVWToken(tokens, jwtid_token, reject, resolve);
+            } catch (err) {
+              this.log.error(err);
+              reject();
+            }
+          },
         );
-    }
-
+      }
     getVWToken(tokens, jwtid_token, reject, resolve) {
         if (this.config.type !== "audi") {
             if (this.config.type === "id") {
@@ -843,60 +1004,94 @@ class VWConnector {
         return matches;
     }
     getIdStatus(vin) {
-        this.log.debug("getIdStatus in");
-        return new Promise((resolve, reject) => {
-            request.get(
-                {
-                    url: "https://mobileapi.apps.emea.vwapps.io/vehicles/" + vin + "/selectivestatus?jobs=all",
-
-                    headers: {
-                        accept: "*/*",
-                        "content-type": "application/json",
-                        "content-version": "1",
-                        "x-newrelic-id": "VgAEWV9QDRAEXFlRAAYPUA==",
-                        "user-agent": "WeConnect/5 CFNetwork/1206 Darwin/20.1.0",
-                        "accept-language": "de-de",
-                        authorization: "Bearer " + this.config.atoken,
-                    },
-                    followAllRedirects: true,
-                    gzip: true,
-                    json: true,
-                },
-                (err, resp, body) => {
-                    this.log.debug("status returned");
-                    if (err || (resp && resp.statusCode >= 400)) {
-                        err && this.log.error(err);
-                        resp && this.log.error(resp.statusCode.toString());
-                        this.log.debug("status went wrong");
-                        reject();
-                        return;
-                    }
-                    console.log(JSON.stringify(body));
-                     let data = {};
-                    for (const key in body) {
-                        for (const subkey in body[key]) {
-                            if (key === "userCapabilities") {
-                                data[key] = body[key];
-                            } else {
-                                data[subkey] = body[key][subkey].value;
-                            }
-                        }
-                    }
-
-          
-                    
-                    
-                    try {
-                        var batteryData = this.extractKeys(this, vin + ".status", data);
-                        resolve(batteryData);
-                    } catch (err) {
-                        this.log.error(err);
-                        reject();
-                    }
+        return new Promise(async (resolve, reject) => {
+          await axios({
+            method: "get",
+            url: "https://emea.bff.cariad.digital/vehicle/v1/vehicles/" + vin + "/parkingposition",
+            headers: {
+              "content-type": "application/json",
+              accept: "*/*",
+              authorization: "Bearer " + this.config.atoken,
+              "accept-language": "de-DE,de;q=0.9",
+              "user-agent": this.userAgent,
+              "content-version": "1",
+            },
+          })
+            .then((res) => {
+              if (res.status == 200) {
+                this.setIsCarMoving(vin, false);
+              } else if (res.status == 204) {
+                this.setIsCarMoving(vin, true);
+              }
+              this.log.debug(JSON.stringify(res.data));
+              this.extractKeys(this, vin + ".parkingposition", res.data.data);
+            })
+            .catch((error) => {
+              this.log.debug(error);
+              //   error.response && this.log.error(JSON.stringify(error.response.data));
+            });
+    
+          await axios({
+            method: "get",
+            url: "https://emea.bff.cariad.digital/vehicle/v1/vehicles/" + vin + "/selectivestatus?jobs=all",
+            headers: {
+              "content-type": "application/json",
+              accept: "*/*",
+              authorization: "Bearer " + this.config.atoken,
+              "accept-language": "de-DE,de;q=0.9",
+              "user-agent": this.userAgent,
+              "content-version": "1",
+            },
+          })
+            .then(async (res) => {
+              this.log.debug(JSON.stringify(res.data));
+              const data = {};
+              for (const key in res.data) {
+                if (key === "userCapabilities") {
+                  data[key] = res.data[key];
+                } else {
+                  for (const subkey in res.data[key]) {
+                    data[subkey] = res.data[key][subkey].value || {};
+                  }
                 }
-            );
+              }
+              if (data.odometerStatus && data.odometerStatus.error) {
+                this.log.warn("Odometer Error: " + data.odometerStatus.error);
+                this.log.info(
+                  "Please activate die Standortdaten freigeben und die automatische Terminvereinbarung in der VW App to receive odometer data",
+                );
+              }
+              var batteryData = this.extractKeys(this, vin + ".status", data);
+              resolve(batteryData);
+              // this.extractKeys(this, vin + ".status", data);
+            /*  this.json2iob.parse(vin + ".status", data, { forceIndex: false });
+              if (this.config.rawJson) {
+                await this.setObjectNotExistsAsync(vin + ".status" + "rawJson", {
+                  type: "state",
+                  common: {
+                    name: vin + ".status" + "rawJson",
+                    role: "state",
+                    type: "json",
+                    write: false,
+                    read: true,
+                  },
+                  native: {},
+                });
+                this.setState(vin + ".status" + "rawJson", JSON.stringify(data), true);
+              }
+              resolve();*/
+            })
+            .catch((error) => {
+              if (error.response && error.response.status >= 500) {
+                this.log.info("Server not available:" + JSON.stringify(error.response.data));
+                return;
+              }
+              this.log.error(error);
+              error && error.response && this.log.error(JSON.stringify(error.response.data));
+              reject();
+            });
         });
-    }
+      }
 
 }
 
