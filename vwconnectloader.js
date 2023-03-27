@@ -36,8 +36,9 @@ class VWConnector {
         const batterystatus = element.batteryStatus;
         const plugstatus = element.plugStatus;
         const climatestatus = element.climatisationStatus;
+        const rest = element;
         return {
-            chargingstatus,batterystatus,plugstatus,climatestatus
+            chargingstatus,batterystatus,plugstatus,climatestatus,element
         }
 
     }
