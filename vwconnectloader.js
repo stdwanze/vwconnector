@@ -1006,31 +1006,9 @@ class VWConnector {
     }
     getIdStatus(vin) {
         return new Promise(async (resolve, reject) => {
-          await axios({
-            method: "get",
-            url: "https://emea.bff.cariad.digital/vehicle/v1/vehicles/" + vin + "/parkingposition",
-            headers: {
-              "content-type": "application/json",
-              accept: "*/*",
-              authorization: "Bearer " + this.config.atoken,
-              "accept-language": "de-DE,de;q=0.9",
-              "user-agent": this.userAgent,
-              "content-version": "1",
-            },
-          })
-            .then((res) => {
-              if (res.status == 200) {
-                this.setIsCarMoving(vin, false);
-              } else if (res.status == 204) {
-                this.setIsCarMoving(vin, true);
-              }
-              this.log.debug(JSON.stringify(res.data));
-              this.extractKeys(this, vin + ".parkingposition", res.data.data);
-            })
-            .catch((error) => {
-              this.log.debug(error);
-              //   error.response && this.log.error(JSON.stringify(error.response.data));
-            });
+
+          
+         
     
           await axios({
             method: "get",
@@ -1063,6 +1041,36 @@ class VWConnector {
                 );
               }
               var batteryData = this.extractKeys(this, vin + ".status", data);
+
+              await axios({
+                method: "get",
+                url: "https://emea.bff.cariad.digital/vehicle/v1/vehicles/" + vin + "/parkingposition",
+                headers: {
+                  "content-type": "application/json",
+                  accept: "*/*",
+                  authorization: "Bearer " + this.config.atoken,
+                  "accept-language": "de-DE,de;q=0.9",
+                  "user-agent": this.userAgent,
+                  "content-version": "1",
+                },
+              })
+                .then((res) => {
+                  if (res.status == 200) {
+                    batteryData.state = "parked";
+                  } else if (res.status == 204) {
+                    batteryData.state = "moving";
+                  }
+                  this.log.debug(JSON.stringify(res.data));
+                  batteryData.position = res.data.data;
+                
+                })
+                .catch((error) => {
+                  this.log.debug(error);
+                  //   error.response && this.log.error(JSON.stringify(error.response.data));
+                });
+
+
+
               resolve(batteryData);
               // this.extractKeys(this, vin + ".status", data);
             /*  this.json2iob.parse(vin + ".status", data, { forceIndex: false });
