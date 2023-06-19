@@ -17,7 +17,7 @@ function initConsumer(conf){
 function consumeState(state){
 
     state.time = new Date(state.chargingstatus.carCapturedTimestamp).getTime();
-    state.state = state.chargingstatus.chargingState == ("readyForCharging" || "chargePurposeReachedAndConservation" || "notReadyForCharging" ) ? "parked" : "charging";
+    if(state.state == "parked" && state.chargingstatus.chargingState == "charging") state.state = "charging";
     options.body = JSON.stringify(state);
 
     request(options, function (error, response) {
