@@ -1012,7 +1012,7 @@ class VWConnector {
     
           await axios({
             method: "get",
-            url: "https://emea.bff.cariad.digital/vehicle/v1/vehicles/" + vin + "/selectivestatus?jobs=all",
+            url: "https://emea.bff.cariad.digital/vehicle/v1/vehicles/" + vin + "/selectivestatus?jobs=access,activeVentilation,auxiliaryHeating,batteryChargingCare,batterySupport,charging,chargingProfiles,climatisation,climatisationTimers,departureProfiles,fuelStatus,honkAndFlash,hybridCarAuxiliaryHeating,userCapabilities,vehicleHealthWarnings,vehicleHealthInspection,vehicleLights,measurements,departureTimers",
             headers: {
               "content-type": "application/json",
               accept: "*/*",
