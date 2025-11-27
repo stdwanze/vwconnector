@@ -259,6 +259,7 @@ class VWConnector {
       // Store tokens directly like Python does
       this.config.atoken = tokens.access_token;
       this.config.rtoken = tokens.refresh_token;
+      savetokens(tokens.access_token,tokens.refresh_token);
 
       this.log.debug("Tokens received and stored, continuing with VW-specific flow");
 
