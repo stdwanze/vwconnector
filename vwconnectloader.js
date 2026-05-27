@@ -216,7 +216,7 @@ class VWConnector {
 
     // CRITICAL: Use BFF token endpoint, NOT identity.vwgroup.io!
     // Python gets this from: https://emea.bff.cariad.digital/login/v1/idk/openid-configuration
-    const tokenEndpoint = "https://emea.bff.cariad.digital/login/v1/idk/token";
+    const tokenEndpoint = "https://emea.bff.cariad.digital/auth/v1/idk/oidc/token";
 
     // Exchange code for tokens WITHOUT code_verifier (like Python does)
     const tokenBody = {
@@ -300,7 +300,7 @@ class VWConnector {
           const method = "GET";
           const form = {};
           let url =
-            "https://identity.vwgroup.io/oidc/v1/authorize?client_id=" +
+            "https://emea.bff.cariad.digital/auth/v1/idk/oidc/authorize?client_id=" +
             this.clientId +
             "&scope=" +
             this.scope +
