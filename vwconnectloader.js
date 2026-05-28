@@ -240,6 +240,9 @@ class VWConnector {
           "User-Agent": this.userAgent,
           "Accept": "application/json",
           "Accept-Language": "en-US,en;q=0.9",
+          "x-platform": "android",
+          "x-android-package-name": this.androidPackageName || "com.volkswagen.weconnect",
+          "x-assertion": "0",
           ...(cookieHeader ? { Cookie: cookieHeader } : {}),
         },
         data: new URLSearchParams(tokenBody).toString(),
@@ -328,7 +331,7 @@ class VWConnector {
             url += "&ui_locales=de-DE%20de&prompt=login";
           }
           if (this.config.type === "id" && this.type !== "Wc") {
-            url = await this.receiveLoginUrl().catch(() => {
+           /* url = await this.receiveLoginUrl().catch(() => {
               this.log.warn("Failed to get login url");
             });
             if (!url) {
@@ -336,7 +339,8 @@ class VWConnector {
                 "https://emea.bff.cariad.digital/user-login/v1/authorize?nonce=" +
                 this.randomString(16) +
                 "&redirect_uri=weconnect://authenticated";
-            }
+            }*/
+           this.log.debug("Using direct OpenID authorization endpoint (Python-style, no code_challenge)");
           }
         
           
