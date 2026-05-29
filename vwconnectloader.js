@@ -13,16 +13,17 @@ class VWConnector {
     constructor(options){
 
         this.configLoaded =  configloader.get('VW.creds');
-        this.log = { error: function(msg){ console.log("error:" +msg);}, warn: function (msg) {console.log("WARN:"+msg);},debug: function (msg){ /*console.log("debug:" +msg);*/}, info: function(msg){console.log("info:" +msg);} };
+        this.log = { error: function(msg){ console.log("error:" +msg);}, warn: function (msg) {console.log("WARN:"+msg);},debug: function (msg){ console.log("debug:" +msg);}, info: function(msg){console.log("info:" +msg);} };
         this.type = "Id";
         this.country = "DE";
         this.clientId = "a24fba63-34b3-4d43-b181-942111e6bda8@apps_vw-dilab_com";
         this.xclientId = "";
-        this.scope = "openid profile badge cars dealers birthdate vin";
+        this.scope = "openid profile badge cars vin";
         this.redirect = "weconnect://authenticated";
-         this.androidPackageName = "com.volkswagen.weconnect";
+        this.androidPackageName = "com.volkswagen.weconnect";
         this.xrequest = "com.volkswagen.weconnect";
         this.responseType = "code id_token token";
+        this.userAgent = "Volkswagen/3.51.1-android/14";
         this.xappversion = "";
         this.xappname = "";
         this.jar = request.jar();
@@ -104,10 +105,30 @@ class VWConnector {
 
     // Check if we've reached weconnect:// URL
     if (redirectUrl.startsWith("weconnect://")) {
-      this.log.debug("Reached weconnect:// URL: " + redirectUrl.substring(0, 100) + "...");
+      this.log.info("Reached weconnect:// URL: " + redirectUrl);
+
+      // Check for implicit flow: access_token directly in fragment
+      try {
+        const urlObj = new URL(redirectUrl);
+        if (urlObj.hash) {
+          const fragmentParams = new URLSearchParams(urlObj.hash.substring(1));
+          const accessToken = fragmentParams.get("access_token");
+          const idToken = fragmentParams.get("id_token");
+          if (accessToken) {
+            this.log.info("access_token in fragment — using directly (no token exchange needed)");
+            this.config.atoken = accessToken;
+            savetokens(accessToken, fragmentParams.get("refresh_token") || "");
+            await this.getVWToken({ access_token: accessToken, id_token: idToken }, idToken, reject, resolve);
+            return;
+          }
+        }
+      } catch (e) {
+        this.log.error("Error parsing weconnect URL: " + e.message);
+      }
+
       const code = this.extractCodeFromUrl(redirectUrl);
       if (code) {
-        this.log.debug("Successfully extracted authorization code (JWT token)");
+        this.log.debug("Successfully extracted authorization code");
         this.exchangeCodeForTokens(code, code_verifier, reject, resolve);
         return;
       } else {
@@ -158,12 +179,9 @@ class VWConnector {
         // Check if this is a weconnect:// URL
         if (nextUrl.startsWith("weconnect://")) {
           this.log.debug("Found weconnect:// redirect: " + nextUrl.substring(0, 100) + "...");
-          const code = this.extractCodeFromUrl(nextUrl);
-          if (code) {
-            this.log.debug("Successfully extracted authorization code (JWT token)");
-            this.exchangeCodeForTokens(code, code_verifier, reject, resolve);
-            return;
-          }
+          // Recurse into the top-level handler which checks implicit flow first
+          await this.followRedirectsManually(nextUrl, depth + 1, code_verifier, reject, resolve);
+          return;
         }
 
         // Check for error redirects
@@ -218,32 +236,22 @@ class VWConnector {
     // Python gets this from: https://emea.bff.cariad.digital/login/v1/idk/openid-configuration
     const tokenEndpoint = "https://emea.bff.cariad.digital/auth/v1/idk/oidc/token";
 
-    // Exchange code for tokens WITHOUT code_verifier (like Python does)
     const tokenBody = {
       client_id: this.clientId,
       grant_type: "authorization_code",
       code: code,
       redirect_uri: this.redirect,
-      // NO code_verifier - Python doesn't use it!
+      code_verifier: code_verifier,
     };
 
     try {
-      // Get cookies from jar for this request
-      const cookies = this.jar.getCookies(tokenEndpoint);
-      const cookieHeader = cookies.map((c) => c.cookieString()).join("; ");
-
       const response = await axios({
         method: "post",
         url: tokenEndpoint,
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
-          "User-Agent": this.userAgent,
           "Accept": "application/json",
-          "Accept-Language": "en-US,en;q=0.9",
-          "x-platform": "android",
-          "x-android-package-name": this.androidPackageName || "com.volkswagen.weconnect",
-          "x-assertion": "0",
-          ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+          "User-Agent": this.userAgent,
         },
         data: new URLSearchParams(tokenBody).toString(),
         maxRedirects: 0,
@@ -303,7 +311,7 @@ class VWConnector {
           const method = "GET";
           const form = {};
           let url =
-            "https://emea.bff.cariad.digital/auth/v1/idk/oidc/authorize?client_id=" +
+            "https://identity.vwgroup.io/oidc/v1/authorize?client_id=" +
             this.clientId +
             "&scope=" +
             this.scope +
@@ -331,16 +339,7 @@ class VWConnector {
             url += "&ui_locales=de-DE%20de&prompt=login";
           }
           if (this.config.type === "id" && this.type !== "Wc") {
-           /* url = await this.receiveLoginUrl().catch(() => {
-              this.log.warn("Failed to get login url");
-            });
-            if (!url) {
-              url =
-                "https://emea.bff.cariad.digital/user-login/v1/authorize?nonce=" +
-                this.randomString(16) +
-                "&redirect_uri=weconnect://authenticated";
-            }*/
-           this.log.debug("Using direct OpenID authorization endpoint (Python-style, no code_challenge)");
+            url += "&code_challenge=" + codeChallenge + "&code_challenge_method=S256";
           }
         
           
