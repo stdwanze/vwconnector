@@ -6,7 +6,7 @@ const configloader = require("config");
 const consumerLocation = configloader.get('Hnkr');
 initConsumer(consumerLocation);
 const connector = vw();
-connector.login().then(()=>connector.getIdStatus("WVWZZZE1ZMP041117").then((status)=>
+connector.login().then(()=>connector.getIdStatus("WVWZZZED7SE023911").then((status)=>
 {
     consumeState(status);
     console.log(status);
