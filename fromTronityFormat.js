@@ -8,20 +8,20 @@ function fromTronityFormat(t) {
 
     const chargingstatus = {
         carCapturedTimestamp: ts,
-        remainingChargingTimeToComplete_min: t.chargeRemainingTime ?? 0,
-        chargingState,
+        remainingChargingTimeToComplete_min: t.chargeRemainingTime != null ? t.chargeRemainingTime : 0,
+        chargingState: chargingState,
         chargeMode: "manual",
-        chargePower_kW: t.chargerPower ?? 0,
+        chargePower_kW: t.chargerPower != null ? t.chargerPower : 0,
         chargeRate_kmph: 0,
-        chargeType,
+        chargeType: chargeType,
         chargingSettings: "default",
         chargingScenario: isCharging ? "immediatelyChargingActive" : "notCharging",
     };
 
     const batterystatus = {
         carCapturedTimestamp: ts,
-        currentSOC_pct: t.level ?? 0,
-        cruisingRangeElectric_km: t.range ?? 0,
+        currentSOC_pct: t.level != null ? t.level : 0,
+        cruisingRangeElectric_km: t.range != null ? t.range : 0,
     };
 
     const plugstatus = {
@@ -36,13 +36,13 @@ function fromTronityFormat(t) {
         ? { lat: t.latitude, lon: t.longitude, carCapturedTimestamp: ts }
         : null;
 
-    return {
-        chargingstatus,
-        batterystatus,
-        plugstatus,
+    var result = {
+        chargingstatus: chargingstatus,
+        batterystatus: batterystatus,
+        plugstatus: plugstatus,
         element: {
             accessStatus: {
-                overallStatus: t.status ?? "safe",
+                overallStatus: t.status != null ? t.status : "safe",
                 carCapturedTimestamp: ts,
             },
             batteryStatus: batterystatus,
@@ -50,28 +50,31 @@ function fromTronityFormat(t) {
             plugStatus: plugstatus,
             odometerStatus: {
                 carCapturedTimestamp: ts,
-                odometer: t.odometer ?? 0,
+                odometer: t.odometer != null ? t.odometer : 0,
             },
             rangeStatus: {
                 carCapturedTimestamp: ts,
-                electricRange: t.range ?? 0,
-                totalRange_km: t.range ?? 0,
+                electricRange: t.range != null ? t.range : 0,
+                totalRange_km: t.range != null ? t.range : 0,
             },
             fuelLevelStatus: {
                 carCapturedTimestamp: ts,
-                currentSOC_pct: t.level ?? 0,
+                currentSOC_pct: t.level != null ? t.level : 0,
                 primaryEngineType: "electric",
                 carType: "electric",
             },
             maintenanceStatus: {
                 carCapturedTimestamp: ts,
-                mileage_km: t.odometer ?? 0,
+                mileage_km: t.odometer != null ? t.odometer : 0,
             },
         },
-        ...(position ? { position } : {}),
-        time: t.timestamp ?? Date.now(),
+        time: t.timestamp != null ? t.timestamp : Date.now(),
         whenhappend: ts,
     };
+
+    if (position) result.position = position;
+
+    return result;
 }
 
 module.exports = fromTronityFormat;
