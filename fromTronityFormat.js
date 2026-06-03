@@ -67,6 +67,11 @@ function fromTronityFormat(t) {
                 carCapturedTimestamp: ts,
                 mileage_km: t.odometer != null ? t.odometer : 0,
             },
+            temperatureBatteryStatus: {
+                carCapturedTimestamp: ts,
+                temperatureHvBatteryMin_K: "273.15",
+                temperatureHvBatteryMax_K: "273.15",
+            },
         },
         time: t.timestamp != null ? t.timestamp : Date.now(),
         whenhappend: ts,
