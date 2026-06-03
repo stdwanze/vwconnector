@@ -27,12 +27,13 @@ const LIST_PATH = "/proxy_api/euda-apim/datadelivery/vehicles/{vin}/{identifier}
 const DOWNLOAD_PATH = "/proxy_api/euda-apim/datadelivery/vehicles/{vin}/{identifier}/download";
 
 class EuConnector {
-    constructor(email, password, brand = "VOLKSWAGEN_PASSENGER_CARS", country = "de", language = "en") {
+    constructor(email, password, brand = "VOLKSWAGEN_PASSENGER_CARS", country = "de", language = "en", extraIdentifiers = []) {
         this.email = email;
         this.password = password;
         this.brand = brand;
         this.country = country;
         this.language = language;
+        this.extraIdentifiers = extraIdentifiers;
         this.jar = request.jar();
         this.loggedIn = false;
     }
@@ -364,6 +365,14 @@ class EuConnector {
                     seen.add(id);
                     candidates.push({ identifier: id, label: suffix || "none" });
                 }
+            }
+        }
+
+        // Append manually configured identifiers (e.g. Request File) not discoverable via metadata
+        for (const id of this.extraIdentifiers) {
+            if (!seen.has(id)) {
+                seen.add(id);
+                candidates.push({ identifier: id, label: "config" });
             }
         }
 
