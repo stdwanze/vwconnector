@@ -2,8 +2,9 @@ function fromTronityFormat(t) {
     const ts = new Date(t.timestamp || Date.now()).toISOString().replace(/\.\d+Z$/, "Z");
 
     const plugConnected = t.plugged === true;
-    const isCharging = t.charging === "AC" || t.charging === "DC";
-    const chargeType = t.charging === "DC" ? "dc" : "ac";
+    const chargingVal = t.charging ? t.charging.toLowerCase() : "";
+    const isCharging = chargingVal === "charging" || chargingVal === "ac" || chargingVal === "dc";
+    const chargeType = chargingVal === "dc" ? "dc" : "ac";
     const chargingState = isCharging ? "charging" : (plugConnected ? "readyForCharging" : "notReadyForCharging");
 
     const chargingstatus = {
