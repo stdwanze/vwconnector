@@ -17,12 +17,22 @@ function initConsumer(conf){
 function consumeState(state){
 
     state.time = new Date(state.chargingstatus.carCapturedTimestamp).getTime();
-    if(state.state == "parked" && state.chargingstatus.chargingState == "charging") state.state = "charging";
+    console.log("consumeState: chargingstatus.chargingState =", state.chargingstatus.chargingState);
+    console.log("consumeState: state.state =", state.state);
+
+    if(state.state == "parked" && state.chargingstatus.chargingState == "charging") {
+        console.log("consumeState: overriding state -> charging");
+        state.state = "charging";
+    } else {
+        console.log("consumeState: state unchanged");
+    }
+
+    console.log("consumeState: posting to", options.url);
     options.body = JSON.stringify(state);
 
     request(options, function (error, response) {
-    if (error) throw new Error(error);
-    console.log(response.body);
+        if (error) throw new Error(error);
+        console.log("consumeState: response:", response.body);
     });
 }
 
