@@ -78,7 +78,7 @@ function fromTronityFormat(t) {
         whenhappend: ts,
     };
 
-    result.state = position ? "parked" : "moving";
+    result.state = (position || isCharging) ? "parked" : "moving";
     if (position) result.position = position;
 
     return result;
